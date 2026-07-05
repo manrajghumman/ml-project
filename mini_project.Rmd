@@ -1,0 +1,277 @@
+---
+title: "Data analysis"
+output: html_notebook
+---
+```{r}
+#| label: setup
+#| include: false
+#| message: false
+#| warning: false
+knitr::opts_chunk$set(
+  collapse = TRUE, 
+  warning = FALSE,
+  message = FALSE,
+  error = TRUE,
+  fig.height = 2.75, 
+  fig.width = 4.25,
+  fig.env = 'figure',
+  fig.pos = 'h',
+  fig.align = 'center')
+
+# Set a more color-blind friendly palette for ggplot
+palette(c("#000000", "#56B4E9", "#E69F00", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"))
+scale_colour_discrete <- function(...) scale_colour_manual(values = palette())
+scale_fill_discrete <- function(...) scale_fill_manual(values = palette())
+
+#| eval: true
+# tidyverse includes functions we need for data wrangling & visualization
+library(tidyverse)
+
+# tidymodels includes functions we'll use for modeling and model evaluation
+library(tidymodels)
+
+# 3D plot!
+library(plotly)
+```
+
+```{r}
+#| eval: true
+# - we want to estimate this model using the lm "engine" / R function
+lm_spec <- linear_reg() %>%
+  set_mode("regression") %>% 
+  set_engine("lm")
+```
+
+```{r}
+stops_sd <- read_csv( "ca_san_diego_2020_04_01.csv", col_types = cols(
+  # raw_row_number = "i",
+  date = col_date(format = "%Y-%m-%d"), 
+  time = col_time(format = "%H:%M:%S"),
+  service_area = "i",
+  subject_age = "i" ) )
+
+# split joined rows 
+stops_sd <- stops_sd %>%
+  separate_longer_delim(c(raw_row_number,reason_for_stop), delim = "|") %>%
+  mutate(raw_row_number = as.integer(raw_row_number))
+
+# replace subject_race = "other" with subject_race = NA
+# do the same with search_basis
+stops_sd <- stops_sd %>% mutate(subject_race = na_if(subject_race, "other"))
+stops_sd <- stops_sd %>% mutate(search_basis = na_if(search_basis, "other"))
+
+# clean reason_for_stop 
+# remove all leading &'s leading
+stops_sd <- stops_sd %>% mutate( reason_for_stop = str_remove(reason_for_stop, "^&") )
+# remove any parenthesis sub-notes
+stops_sd <- stops_sd %>% mutate(reason_for_stop = str_remove_all(reason_for_stop, "\\s*\\([^\\)]+\\)") )
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(reason_for_stop == "Suspect Info (I.S.", "Suspect Info", reason_for_stop) )  # special case
+# all the not listed / not marked / ... should be replaced by NA
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(tolower(reason_for_stop), "not"), NA_character_, reason_for_stop))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(tolower(reason_for_stop), "none"), NA_character_, reason_for_stop))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(reason_for_stop, "CAUSE NOT LISTED"), NA_character_, reason_for_stop))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(reason_for_stop, "No Cause Specified"), NA_character_, reason_for_stop))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(tolower(reason_for_stop), "other"), NA_character_, reason_for_stop))
+# all bicycle cases 
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(startsWith(tolower(reason_for_stop), "bicycle"), "Bicycle", reason_for_stop))
+# make all MUNI into Muni. the local bus service
+stops_sd <- stops_sd %>% mutate(reason_for_stop = str_replace_all(reason_for_stop, "MUNI", "Muni"))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(reason_for_stop == "Muni", "Muni, County, H&S Code", reason_for_stop) ) 
+# special cases
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(reason_for_stop == "Personal Observ/Knowledge", "Personal Knowledge/Informant", reason_for_stop) ) 
+stops_sd <- stops_sd %>% mutate(reason_for_stop = na_if(reason_for_stop, "f--"))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = na_if(reason_for_stop, "wm--"))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = na_if(reason_for_stop, "NA"))
+stops_sd <- stops_sd %>% mutate(reason_for_stop = if_else(reason_for_stop == "UNI, &County, H&&S Code", "UNI, County, H&S Code", reason_for_stop) ) 
+
+# stops_sd
+# stops_sd %>% group_by(reason_for_stop) %>% count
+```
+
+
+
+```{r}
+
+# stops_sd %>% 
+#   ggplot(aes(x = date, color=subject_race)) +
+#   scale_color_manual(values = c(
+#     "white" = "white",
+#     "black" = "black",
+#     "hispanic" = "chocolate",
+#     "asian/pacific islander" = "gold"
+#   )) +
+#   geom_density() + 
+#   labs(
+#     title = "San Diego, CA",
+#   )
+
+stops_sd %>% 
+  ggplot(aes(x = date)) +
+  geom_density() + 
+  labs(
+    title = "San Diego, CA",
+  )
+
+```
+# ```{r}
+# stops_sd %>% group_by(search_conducted, contraband_found) %>% count
+# stops_sd %>% group_by(search_conducted, contraband_found, subject_sex) %>% count
+# stops_sd %>% group_by(search_conducted, contraband_found, subject_race) %>% count
+# ```
+
+```{r}
+stops_sf <- read_csv( "ca_san_francisco_2020_04_01.csv", col_types = cols(
+  date = col_date(format = "%Y-%m-%d"),
+  time = col_time(format = "%H:%M:%S") ))
+# split joined rows
+stops_sf <- stops_sf %>%
+  separate_longer_delim(c(raw_row_number,reason_for_stop), delim = "|") %>%
+  mutate(raw_row_number = as.integer(raw_row_number))
+
+# stops_sf
+# stops_sf %>% group_by(reason_for_stop) %>% count
+```
+
+
+```{r}
+
+# stops_sf %>% 
+#   ggplot(., aes(x = date, color=subject_race)) +
+#   scale_color_manual(values = c(
+#     "white" = "white",
+#     "black" = "black",
+#     "hispanic" = "chocolate",
+#     "asian/pacific islander" = "gold",
+#     "other" = "gray"
+#   )) +
+#   geom_density() + 
+#   labs(
+#     title = "San Francisco, CA",
+#   )
+
+stops_sf %>% 
+  ggplot(aes(x = date)) +
+  geom_density() + 
+  labs(
+    title = "San Francisco, CA",
+  )
+
+```
+# ```{r}
+# stops_sf %>% group_by(search_conducted, contraband_found) %>% count
+# stops_sf %>% group_by(search_conducted, contraband_found, subject_sex) %>% count
+# stops_sf %>% group_by(search_conducted, contraband_found, subject_race) %>% count
+# ```
+
+
+```{r}
+
+stops_ok <- read_csv( "ca_oakland_2020_04_01.csv", col_types = cols(
+  date = col_date(format = "%Y-%m-%d"), 
+  time = col_time(format = "%H:%M:%S") ))
+
+stops_ok <- stops_ok %>%
+  separate_longer_delim(c(raw_row_number,reason_for_stop), delim = "|") %>%
+  mutate(raw_row_number = as.integer(raw_row_number))
+
+# clean reason_for_stop
+# remove all trailing commas
+stops_ok <- stops_ok %>% mutate( reason_for_stop = str_remove(reason_for_stop, ",$") )
+stops_ok <- stops_ok %>% mutate(reason_for_stop = if_else(reason_for_stop == "Other-Consensual", "Consensual Encounter", reason_for_stop) )  # special case
+
+# stops_ok
+# stops_ok %>% group_by(reason_for_stop) %>% count
+
+```
+
+```{r}
+
+# stops_ok %>% 
+#   ggplot(aes(x = date, color=subject_race)) +
+#   scale_color_manual(values = c(
+#     "white" = "white",
+#     "black" = "black",
+#     "hispanic" = "chocolate",
+#     "asian/pacific islander" = "gold",
+#     "other" = "gray"
+#   )) +
+#   geom_density() + 
+#   labs(
+#     title = "Oakland, CA",
+#   )
+
+stops_ok %>% 
+  ggplot(aes(x = date)) +
+  geom_density() + 
+  labs(
+    title = "Oakland, CA",
+  )
+
+```
+```{r}
+
+stops_la <- read_csv( "ca_los_angeles_2020_04_01.csv", col_types = cols(
+  date = col_date(format = "%Y-%m-%d"), 
+  time = col_time(format = "%H:%M:%S") ))
+
+stops_la <- stops_la %>%
+  separate_longer_delim(raw_row_number, delim = "|") %>%
+  mutate(raw_row_number = as.integer(raw_row_number))
+
+# stops_la
+
+```
+
+```{r}
+
+# stops_la %>% 
+#   ggplot(., aes(x = date, color=subject_race)) +
+#   scale_color_manual(values = c(
+#     "white" = "white",
+#     "black" = "black",
+#     "hispanic" = "chocolate",
+#     "asian/pacific islander" = "gold",
+#     "other" = "gray"
+#   )) +
+#   geom_density() + 
+#   labs(
+#     title = "Los Angeles, CA",
+#   )
+
+stops_la %>% 
+  ggplot(aes(x = date)) +
+  geom_density() + 
+  labs(
+    title = "Los Angeles, CA",
+  )
+
+```
+```{r}
+stops_la$city <- "Los Angeles"
+stops_sf$city <- "San Francisco"
+stops_sd$city <- "San Diego"
+stops_ok$city <- "Oakland"
+
+stops_all <- bind_rows(stops_la, stops_sf, stops_sd, stops_ok)
+```
+
+```{r}
+
+stops_all %>% 
+  ggplot(aes(x = date, color=city)) +
+  geom_density() + 
+  labs(
+    title = "California",
+  )
+
+```
+
+```{r}
+ggplot() +
+  geom_density(data = stops_la, aes(x = date), color = "black") +
+  geom_density(data = stops_sf, aes(x = date), color = "blue") +
+  geom_density(data = stops_sd, aes(x = date), color = "green") + 
+  geom_density(data = stops_ok, aes(x = date), color = "red")
+```
+
+
